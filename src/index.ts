@@ -4,21 +4,17 @@ import { Request, Response } from 'express'
 
 type QueueRequest = Request
 
-type SendFunc = (data: any) => void
+type ResponseSendFunc = (data: any) => void
 type HandlerFunc = (req: QueueRequest, res: QueueResponse) => void
 
 interface QueueResponse {
-  send: SendFunc
-  json: SendFunc
+  send: ResponseSendFunc
+  json: ResponseSendFunc
   sendStatus: (statusCode: number) => void
 }
 
-interface QueueOptions {
-  redis
-
-  verbose: boolean
-
-  handler: boolean
+interface QueueSettings extends BeeQueue.QueueSettings {
+  concurrency?: number
 }
 
 export default class Queue {
@@ -27,16 +23,16 @@ export default class Queue {
   handler: HandlerFunc
 
   private queue: BeeQueue
-  private options: QueueOptions
+  private settings: QueueSettings
 
-  constructor(name: string, options: QueueOptions) {
+  constructor(name: string, settings: QueueSettings) {
     this.name = name
-    this.options = options
+    this.settings = Object.assign({}, { removeOnSuccess: true, removeOnFailure: true }, settings)
 
     this.setupQueue()
   }
 
-  process(handler: HandlerFunc) {
+  process(handler: HandlerFunc, ) {
     this.handler = handler
 
     return async (_req: Request, res: Response) => {
@@ -66,14 +62,9 @@ export default class Queue {
   }
 
   private setupQueue() {
-    this.queue = new BeeQueue(this.name, {
-      redis: this.options.redis,
+    const queue = new BeeQueue(this.name, this.settings)
 
-      removeOnSuccess: true,
-      removeOnFailure: true
-    })
-
-    this.queue.process((job, done) => {
+    queue.process(this.settings.concurrency || 1, (job, done) => {
       function sender(data: any, status = 200) {
         done(null, { data, status })
       }
@@ -88,6 +79,8 @@ export default class Queue {
         console.log(error)
       }
     })
+
+    this.queue = queue
   }
 
   private patchReq(_req: Request) {
