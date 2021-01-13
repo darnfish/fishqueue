@@ -1,5 +1,5 @@
 # fishqueue
-Automatically queue incoming Express requests over a replicated codebase. Backed by [Bee Queue](https://github.com/bee-queue/bee-queue)
+High-velocity queue for handling incoming Express.js requests across replicated codebase using Redis
 
 ## Install
 ```

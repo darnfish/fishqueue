@@ -1,101 +1,212 @@
-import BeeQueue from 'bee-queue'
-import { parse, stringify } from 'flatted'
+// Imports
+import death from 'death'
+import Redis from 'ioredis'
+import onFinished from 'on-finished'
 import { Request, Response } from 'express'
 
-type QueueRequest = Request
+// ID Gen
+import FlakeId from 'flake-idgen'
+import intformat from 'biguint-format'
 
-type ResponseSendFunc = (data: any) => void
-type HandlerFunc = (req: QueueRequest, res: QueueResponse) => void
+const flake = new FlakeId({ epoch: new Date(2002, 7, 9) })
 
-interface QueueResponse {
-  send: ResponseSendFunc
-  json: ResponseSendFunc
-  sendStatus: (statusCode: number) => void
+// Types
+type HandlerFunc = (req: Request, res: Response) => void
+
+interface HandlerMap {
+  [key: string]: QueueRequest
 }
 
-interface QueueSettings extends BeeQueue.QueueSettings {
+interface QueueOptions {
+  redis: string | Redis.RedisOptions
+
+  verbose?: boolean
   concurrency?: number
+}
+
+// Request
+export class QueueRequest {
+  id: string
+
+  req: Request
+  res: Response
+  handler: HandlerFunc
+
+  queue: Queue
+
+  constructor(req: Request, res: Response, handler: HandlerFunc, queue: Queue) {
+    this.queue = queue
+
+    this.id = this.generateId()
+    if(queue.options?.verbose)
+      console.log('[incoming]', this.id)
+
+    this.req = req
+    this.res = res
+    this.handler = handler
+
+    this.register()
+    onFinished(res, () => this.deregister())
+  }
+
+  async run() {
+    const { queue } = this
+    if(queue.options?.verbose)
+      console.log('[running]', this.id)
+
+    queue.currentlyProcessing.add(this.id)
+    await queue.redis.sadd(queue.withEvent('processing'), this.id)
+    await queue.publisher.publish(queue.withEvent('request_processing'), this.id)
+
+    this.handler(this.req, this.res)
+  }
+
+  async register() {
+    const { queue } = this
+
+    queue.requests[this.id] = this
+
+    // Add to queue
+    await queue.redis.sadd(queue.withEvent('queue'), this.id)
+    await queue.publisher.publish(queue.withEvent('new_request'), this.id)
+  }
+
+  async deregister() {
+    const { queue } = this
+    if(queue.options?.verbose)
+      console.log('[done]', this.id,)
+
+    delete queue.requests[this.id]
+    
+    // Remove from queue
+    await queue.redis.srem(queue.withEvent('queue'), this.id)
+    await queue.redis.srem(queue.withEvent('processing'), this.id)
+    await queue.publisher.publish(queue.withEvent('request_done'), this.id)
+  }
+
+  private generateId() {
+    return `${this.queue.name}:${intformat(flake.next(), 'dec')}`
+  }
 }
 
 export default class Queue {
   name: string
+  options: QueueOptions
 
-  handler: HandlerFunc
+  requests: HandlerMap = {}
 
-  private queue: BeeQueue
-  private settings: QueueSettings
+  redis: Redis.Redis
+  publisher: Redis.Redis
+  subscriber: Redis.Redis
 
-  constructor(name: string, settings: QueueSettings) {
+  queue: Set<string> = new Set([])
+  currentlyProcessing: Set<string> = new Set([])
+
+  private eventTypes: string[]
+
+  constructor(name: string, options: QueueOptions) {
+    if(name.split('').indexOf(':') > -1)
+      throw new Error('fishqueue does not support queue names with \':\'')
+    
     this.name = name
-    this.settings = Object.assign({}, { removeOnSuccess: true, removeOnFailure: true }, settings)
+    this.options = options
 
-    this.setupQueue()
+    this.setup()
   }
 
   process(handler: HandlerFunc) {
-    this.handler = handler
-
-    return async (_req: Request, res: Response) => {
-      const req = this.patchReq(_req)
-
-      const job = this.queue.createJob(req)
-      await job.save()
-
-      const logPrefix = `[fish queue] job#${job.id} on queue#${this.queue.name}\n[fish queue]`
-
-      job.on('succeeded', ({ data, status }) => {
-        console.warn(logPrefix, `succeeded with status ${status}!`)
-
-        res.status(status).send(data)
-      })
-
-      job.on('retrying', error => {
-        console.warn(logPrefix, `retrying -> ${error}`)
-      })
-
-      job.on('failed', error => {
-        console.error(logPrefix, `failed -> ${error}`)
-
-        res.sendStatus(500)
-      })
-    }
+    return async (req: Request, res: Response) => new QueueRequest(req, res, handler, this)
   }
 
-  private setupQueue() {
-    const queue = new BeeQueue(this.name, this.settings)
+  private async setup() {
+    this.redis = this.createRedis()
+    this.publisher = this.createRedis()
+    this.subscriber = this.createRedis()
 
-    queue.process(this.settings.concurrency || 1, (job, done) => {
-      function sender(data: any, status = 200) {
-        done(null, { data, status })
+    this.queue = new Set(await this.redis.smembers(this.withEvent('queue')))
+
+    this.eventTypes = [
+      this.withEvent('new_request'),
+      this.withEvent('request_processing'),
+      this.withEvent('request_done')
+    ]
+
+    this.subscriber.on('message', async (channel, message) => {
+      const [header, queue, type] = channel.split(':')
+
+      switch(type) {
+      case 'new_request': {
+        this.queue.add(message)
+
+        await this.runOutstandingItems()
+
+        break
+      }
+      case 'request_processing': {
+        this.currentlyProcessing.add(message)
+
+        break
+      }
+      case 'request_done': {
+        delete this.requests[message]
+
+        this.queue.delete(message)
+        this.currentlyProcessing.delete(message)
+
+        await this.runOutstandingItems()
+
+        break
+      }
       }
 
+      if(this.options?.verbose) {
+        console.log('[got]', type, '->', message)
+        console.log('[queue]', this.queue)
+        console.log('')
+      }
+    }).subscribe([
+      ...this.eventTypes
+    ])
+
+    death(signal => this.onDeath(signal))
+  }
+
+  async runOutstandingItems() {
+    if(this.currentlyProcessing.size >= (this.options?.concurrency || 3))
+      return
+
+    let requestIds = Object.keys(this.requests)
+    requestIds = requestIds.filter(id => !this.currentlyProcessing.has(id))
+
+    if(requestIds.length === 0)
+      return
+
+    this.requests[requestIds[0]].run()
+    this.currentlyProcessing.add(requestIds[0])
+  }
+
+  withEvent(eventName) {
+    return `fq:${this.name}:${eventName}`
+  }
+
+  private createRedis() {
+    // dont ask lol
+    if(typeof this.options?.redis === 'string')
+      return new Redis(this.options?.redis)
+
+    return new Redis(this.options?.redis)
+  }
+
+  private async onDeath(signal) {
+    const internalQueueItems = Object.keys(this.requests)
+
+    for(const requestId of internalQueueItems)
       try {
-        this.handler(parse(job.data), {
-          send: sender,
-          json: sender,
-          sendStatus: () => sender(null, 200)
-        })
+        await this.requests[requestId].deregister()
       } catch(error) {
-        console.log(error)
+        console.error('error deleting request', requestId, '->', error)
       }
-    })
 
-    this.queue = queue
-  }
-
-  private patchReq(_req: Request) {
-    const req = Object.assign({}, _req) as any
-
-    req.headers = Object.assign({}, _req.headers)
-
-    req.connection = {
-      remoteAddress: _req.connection.remoteAddress
-    }
-
-    return stringify(req)
-  }
-
-  private nomify(value) {
-    return JSON.parse(JSON.stringify(value))
+    process.exit(signal)
   }
 }
