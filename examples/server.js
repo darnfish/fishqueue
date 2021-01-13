@@ -6,6 +6,8 @@ const webhookQueue = new Queue('webhook', { redis: 'redis://localhost:6379' })
 
 const app = express()
 
+app.use(express.json())
+
 app.post('/handler', webhookQueue.process((req, res) => {
   const { name } = req.body
 

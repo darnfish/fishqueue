@@ -32,7 +32,7 @@ export default class Queue {
     this.setupQueue()
   }
 
-  process(handler: HandlerFunc, ) {
+  process(handler: HandlerFunc) {
     this.handler = handler
 
     return async (_req: Request, res: Response) => {
