@@ -73,10 +73,13 @@ export class QueueRequest {
     const { queue } = this
     if(queue.options?.verbose)
       console.log('[done]', this.id,)
-
-    delete queue.requests[this.id]
     
-    // Remove from queue
+    // Remove from local cache
+    queue.queue.delete(this.id)
+    delete queue.requests[this.id]
+    queue.currentlyProcessing.delete(this.id)
+
+    // Remove from Redis
     await queue.redis.srem(queue.withEvent('queue'), this.id)
     await queue.redis.srem(queue.withEvent('processing'), this.id)
     await queue.publisher.publish(queue.withEvent('request_done'), this.id)
