@@ -41,7 +41,7 @@ export class QueueRequest {
     if(queue.options?.verbose)
       console.log('[incoming]', this.id)
 
-    this.req = req
+    this.req = Object.assign({}, req, { fishqueue: { id: this.id }})
     this.res = res
     this.handler = handler
 
