@@ -245,11 +245,9 @@ export default class Queue {
           console.error('error deleting request', requestId, '->', error)
         }
 
-      await Promise.all([
-        this.redis.quit(),
-        this.publisher.quit(),
-        this.subscriber.quit()
-      ])
+      this.redis.disconnect()
+      this.publisher.disconnect()
+      this.subscriber.disconnect()
     }
 
     if(exitProcess)
