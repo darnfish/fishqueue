@@ -34,7 +34,6 @@ function generatePort() {
 }
 
 async function runSpamRequest(batch, request, { port, task }) {
-
   const portLog = `port#${port}`
   const batchLog = `batch#${batch}`
   const requestLog = `request#${request}`
