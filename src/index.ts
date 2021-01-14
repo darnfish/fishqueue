@@ -8,8 +8,6 @@ import { Request, Response } from 'express'
 import FlakeId from 'flake-idgen'
 import intformat from 'biguint-format'
 
-const flake = new FlakeId({ epoch: new Date(2002, 7, 9) })
-
 // Types
 type HandlerFunc = (req: Request, res: Response) => void
 
@@ -85,7 +83,7 @@ export class QueueRequest {
   }
 
   private generateId() {
-    return `${this.queue.name}:${intformat(flake.next(), 'dec')}`
+    return `${this.queue.name}:${intformat(this.queue.idGenerator.next(), 'dec')}`
   }
 }
 
@@ -102,6 +100,8 @@ export default class Queue {
   queue: Set<string> = new Set([])
   currentlyProcessing: Set<string> = new Set([])
 
+  idGenerator: any
+  
   private eventTypes: string[]
 
   constructor(name: string, options: QueueOptions) {
@@ -126,6 +126,8 @@ export default class Queue {
     this.queue = new Set(await this.redis.smembers(this.withEvent('queue')))
 
     this.eventTypes = [
+      this.withEvent('hello'),
+
       this.withEvent('new_request'),
       this.withEvent('request_processing'),
       this.withEvent('request_done')
@@ -133,6 +135,8 @@ export default class Queue {
 
     this.subscriber.on('message', async (channel, message) => {
       const [header, queue, type] = channel.split(':')
+      if(type === 'hello')
+        return
 
       switch(type) {
       case 'new_request': {
@@ -167,6 +171,9 @@ export default class Queue {
     }).subscribe([
       ...this.eventTypes
     ])
+
+    const machineId = await this.publisher.publish(this.withEvent('hello'), 'world')
+    this.idGenerator = new FlakeId({ epoch: new Date(2002, 7, 9), worker: machineId })
 
     death(signal => this.onDeath(signal))
   }
