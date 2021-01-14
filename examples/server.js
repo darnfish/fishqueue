@@ -1,10 +1,8 @@
 const express = require('express')
-
 const Queue = require('../lib').default
 
-const webhookQueue = new Queue('webhook', { verbose: false, concurrency: 2 })
-
 const app = express()
+const webhookQueue = new Queue('webhook', { verbose: false, concurrency: 2 })
 
 app.use(express.json())
 
