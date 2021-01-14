@@ -38,6 +38,7 @@ export default class QueueRequest {
 
     if(queue.useRedis) {
       await queue.redis.sadd(queue.withEvent('processing'), this.id)
+      
       await queue.publisher.publish(queue.withEvent('request_processing'), this.id)
     }
 
@@ -47,11 +48,13 @@ export default class QueueRequest {
   async register() {
     const { queue } = this
 
+    queue.queue.add(this.id)
     queue.requests[this.id] = this
 
     if(queue.useRedis) {
       // Add to queue
       await queue.redis.sadd(queue.withEvent('queue'), this.id)
+
       await queue.publisher.publish(queue.withEvent('new_request'), this.id)
     } else
       queue.runOutstandingItems()
@@ -71,6 +74,7 @@ export default class QueueRequest {
       // Remove from Redis
       await queue.redis.srem(queue.withEvent('queue'), this.id)
       await queue.redis.srem(queue.withEvent('processing'), this.id)
+
       await queue.publisher.publish(queue.withEvent('request_done'), this.id)
     } else
       queue.runOutstandingItems()

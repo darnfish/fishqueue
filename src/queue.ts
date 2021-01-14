@@ -82,18 +82,25 @@ export default class Queue {
             this.machineCount -= 1
     
           break
-        case 'new_request': {
+        case 'new_request':
           this.queue.add(message)
 
-          await this.runOutstandingItems()
+          if(this.currentlyProcessing.size === 0)
+            this.runOutstandingItems()
+
+          break
+        case 'request_processing':
+          this.currentlyProcessing.add(message)
 
           break
         }
         case 'request_done': {
           this.queue.delete(message)
           delete this.requests[message]
+          this.currentlyProcessing.delete(message)
 
-          await this.runOutstandingItems()
+          if(this.requestCount > 0)
+            this.runOutstandingItems()
 
           break
         }
@@ -130,12 +137,12 @@ export default class Queue {
     if(this.currentlyProcessing.size >= this.concurrencyCount)
       return
 
-    this.requests[requestIds[0]].run()
-    this.currentlyProcessing.add(requestIds[0])
+    const [requestId] = requestIds
+    this.requests[requestId].run()
   }
 
-  withEvent(eventName) {
-    return `fq:${this.name}:${eventName}`
+  withEvent(eventName?) {
+    return `fq:${this.name}${eventName ? `:${eventName}` : ''}`
   }
 
   generateId() {
@@ -158,7 +165,7 @@ export default class Queue {
 
       for(const requestId of internalQueueItems)
         try {
-          await this.requests[requestId].deregister()
+          await this.requests[requestId]?.deregister()
         } catch(error) {
           console.error('error deleting request', requestId, '->', error)
         }
@@ -175,7 +182,7 @@ export default class Queue {
   }
 
   private get concurrencyCount() {
-    const baseConcurrency = this.options?.concurrency || 3
+    const baseConcurrency = Math.ceil(this.options?.concurrency) || 3
     if(!this.redis)
       return baseConcurrency
 
@@ -183,7 +190,7 @@ export default class Queue {
 
     switch(concurrencyType) {
     case 'cluster':
-      return Math.ceil(baseConcurrency / this.machineCount) || 3
+      return Math.ceil(baseConcurrency / this.machines.size) || baseConcurrency
     default:
       return baseConcurrency
     }
@@ -193,6 +200,6 @@ export default class Queue {
     if(this.options?.concurrencyType === 'node')
       return false
 
-    return !!this.redis
+    return !!this.options?.redis
   }
 }
