@@ -15,9 +15,9 @@ export default class Queue {
 
   requests: HandlerMap = {}
 
-  redis: Redis.Redis
-  publisher: Redis.Redis
-  subscriber: Redis.Redis
+  redis?: Redis.Redis
+  publisher?: Redis.Redis
+  subscriber?: Redis.Redis
 
   queue: Set<string> = new Set([])
   currentlyProcessing: Set<string> = new Set([])

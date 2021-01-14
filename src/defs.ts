@@ -10,7 +10,7 @@ export interface HandlerMap {
 }
 
 export interface QueueOptions {
-  redis: string | Redis.RedisOptions
+  redis?: string | Redis.RedisOptions
 
   verbose?: boolean
   concurrency?: number
