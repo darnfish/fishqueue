@@ -3,8 +3,8 @@ const Listr = require('listr')
 
 const ports = ['4000', '5000', '6000', '7000']
 
-const batchCount = 20
-const requestCount = 20
+const batchCount = 5
+const requestCount = 40
 
 let currentPortIndex = 0
 let currentPortBatch = 0

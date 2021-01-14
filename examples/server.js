@@ -2,7 +2,7 @@ const express = require('express')
 
 const Queue = require('../lib').default
 
-const webhookQueue = new Queue('webhook', { redis: 'redis://localhost:6379', verbose: true, concurrency: 3 })
+const webhookQueue = new Queue('webhook', { redis: 'redis://localhost:6379', verbose: false, concurrency: 4*4 })
 
 const app = express()
 
@@ -21,7 +21,7 @@ app.post('/handler', webhookQueue.process((req, res) => {
     res.send({
       id: req.fishqueue.id
     })
-  }, generateRandomInt(1000, 5000))
+  }, 100 || generateRandomInt(1000, 5000))
 }))
 
 const port = process.env.PORT || 4000

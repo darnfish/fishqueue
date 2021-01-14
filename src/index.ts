@@ -35,7 +35,7 @@ export class QueueRequest {
   constructor(req: Request, res: Response, handler: HandlerFunc, queue: Queue) {
     this.queue = queue
 
-    this.id = this.generateId()
+    this.id = this.queue.generateId()
     if(queue.options?.verbose)
       console.log('[incoming]', this.id)
 
@@ -84,13 +84,11 @@ export class QueueRequest {
     await queue.redis.srem(queue.withEvent('processing'), this.id)
     await queue.publisher.publish(queue.withEvent('request_done'), this.id)
   }
-
-  private generateId() {
-    return `${this.queue.name}:${intformat(this.queue.idGenerator.next(), 'dec')}`
-  }
 }
 
 export default class Queue {
+  id: string
+
   name: string
   options: QueueOptions
 
@@ -103,8 +101,11 @@ export default class Queue {
   queue: Set<string> = new Set([])
   currentlyProcessing: Set<string> = new Set([])
 
+  machineId: number
+  machineCount: number
+
   idGenerator: any
-  
+
   private eventTypes: string[]
 
   constructor(name: string, options: QueueOptions) {
@@ -130,18 +131,29 @@ export default class Queue {
 
     this.eventTypes = [
       this.withEvent('hello'),
+      this.withEvent('goodbye'),
 
       this.withEvent('new_request'),
       this.withEvent('request_processing'),
       this.withEvent('request_done')
     ]
 
+    const mutedEvents = ['hello', 'goodbye']
+
     this.subscriber.on('message', async (channel, message) => {
       const [header, queue, type] = channel.split(':')
-      if(type === 'hello')
-        return
 
       switch(type) {
+      case 'hello':
+        if(message !== this.id)
+          this.machineCount += 1
+  
+        break
+      case 'goodbye':
+        if(message !== this.id)
+          this.machineCount -= 1
+  
+        break
       case 'new_request': {
         this.queue.add(message)
 
@@ -149,16 +161,9 @@ export default class Queue {
 
         break
       }
-      case 'request_processing': {
-        this.currentlyProcessing.add(message)
-
-        break
-      }
       case 'request_done': {
-        delete this.requests[message]
-
         this.queue.delete(message)
-        this.currentlyProcessing.delete(message)
+        delete this.requests[message]
 
         await this.runOutstandingItems()
 
@@ -166,29 +171,40 @@ export default class Queue {
       }
       }
 
-      if(this.options?.verbose) {
+      if(this.options?.verbose && !mutedEvents.includes(type)) {
         console.log('[got]', type, '->', message)
-        console.log('[queue]', this.queue)
-        console.log('')
+        // console.log('[queue]', this.queue)
+        // console.log('')
       }
     }).subscribe([
       ...this.eventTypes
     ])
 
-    const machineId = await this.publisher.publish(this.withEvent('hello'), 'world')
-    this.idGenerator = new FlakeId({ epoch: new Date(2002, 7, 9), worker: machineId })
+    // Generate initial internal queue id
+    const idParams = { epoch: new Date(2002, 7, 9) }
+
+    this.idGenerator = new FlakeId(idParams)
+    this.id = this.generateId()
+
+    // Find out how many nodes are currently on this queue
+    const machineId = await this.publisher.publish(this.withEvent('hello'), this.id)
+    this.machineId = machineId
+    this.machineCount = machineId
+
+    // Update queue id generator with machine id
+    this.idGenerator = new FlakeId({ ...idParams, worker: machineId })
 
     death(signal => this.onDeath(signal))
   }
 
   async runOutstandingItems() {
-    if(this.currentlyProcessing.size >= (this.options?.concurrency || 3))
-      return
-
     let requestIds = Object.keys(this.requests)
     requestIds = requestIds.filter(id => !this.currentlyProcessing.has(id))
 
     if(requestIds.length === 0)
+      return
+
+    if(this.currentlyProcessing.size >= this.concurrencyCount)
       return
 
     this.requests[requestIds[0]].run()
@@ -197,6 +213,10 @@ export default class Queue {
 
   withEvent(eventName) {
     return `fq:${this.name}:${eventName}`
+  }
+
+  generateId() {
+    return `${this.name}:${intformat(this.idGenerator.next(), 'dec')}`
   }
 
   private createRedis() {
@@ -210,6 +230,8 @@ export default class Queue {
   private async onDeath(signal) {
     const internalQueueItems = Object.keys(this.requests)
 
+    await this.publisher.publish(this.withEvent('goodbye'), 'world')
+
     for(const requestId of internalQueueItems)
       try {
         await this.requests[requestId].deregister()
@@ -218,5 +240,9 @@ export default class Queue {
       }
 
     process.exit(signal)
+  }
+
+  private get concurrencyCount() {
+    return Math.ceil((this.options?.concurrency || 3) / this.machineCount) || 3
   }
 }
