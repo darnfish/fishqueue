@@ -46,9 +46,7 @@ export default class Queue {
   }
 
   async runOutstandingItems() {
-    const requests = Object.keys(this.requests).map(requestId => this.requests[requestId]).sort((a, b) => a.recievedAt - b.recievedAt)
-    const requestIds = requests.map(request => request.id).filter(id => !this.currentlyProcessing.has(id))
-
+    const requestIds = this.outstandingRequestIds
     if(requestIds.length === 0)
       return
 
@@ -57,6 +55,24 @@ export default class Queue {
 
     const [requestId] = requestIds
     this.requests[requestId].run()
+  }
+
+  async nominateMachine(includeSelf = true) {
+    if(this.queue.size === 0)
+      return
+
+    let machineIds = Array.from(this.machines)
+    if(!includeSelf)
+      machineIds = machineIds.filter(machineId => machineId !== this.id)
+
+    const randomIndex = Math.floor(Math.random() * machineIds.length)
+    const machineId = machineIds[randomIndex]
+
+    await this.publisher.publish(this.withEvent(), `d:nominated:${machineId}`)
+  }
+
+  async fetchCurrentlyProcessing() {
+    return new Set(await this.redis.smembers(this.withEvent('processing')))
   }
 
   generateId() {
@@ -76,6 +92,21 @@ export default class Queue {
 
   get requestCount() {
     return Object.keys(this.requests).length
+  }
+
+  get concurrencyCount() {
+    const baseConcurrency = Math.ceil(this.options?.concurrency) || 3
+    if(!this.redis)
+      return baseConcurrency
+
+    const concurrencyType = this.options?.concurrencyType || 'node'
+
+    switch(concurrencyType) {
+    case 'cluster':
+      return Math.ceil(baseConcurrency / this.machines.size) || baseConcurrency
+    default:
+      return baseConcurrency
+    }
   }
 
   private async setup() {
@@ -104,34 +135,57 @@ export default class Queue {
       ]
 
       this.subscriber.on('message', async (channel, message) => {
+        let isGlobalMessage = false
         let isDirectMessage = false
         let [header, queue, type] = channel.split(':')
 
         if(!type) {
           const parts = message.split(':')
 
+          const messageType = parts[0]
+          parts.splice(0, 1)
+
           type = parts[0]
           parts.splice(0, 1)
 
-          message = parts.join(':')
+          switch(messageType) {
+          case 'g':
+            isGlobalMessage = true
 
-          isDirectMessage = true
+            break
+          case 'd':
+            isDirectMessage = this.id === parts.join(':')
+
+            break
+          }
+
+          message = parts.join(':')
         }
 
         switch(type) {
         case 'hello':
           this.machines.add(message)
 
-          if(!isDirectMessage)
-            this.publisher.publish(this.withEvent(), `hello:${this.id}`)
+          if(!isGlobalMessage)
+            this.publisher.publish(this.withEvent(), `g:hello:${this.id}`)
     
           break
         case 'goodbye':
           this.machines.delete(message)
 
-          if(!isDirectMessage)
-            this.publisher.publish(this.withEvent(), `goodbye:${this.id}`)
+          if(!isGlobalMessage)
+            this.publisher.publish(this.withEvent(), `g:goodbye:${this.id}`)
     
+          break
+        case 'nominated':
+          if(!isDirectMessage || this.queue.size === 0)
+            break
+
+          if(this.outstandingRequestIds.length > 0)
+            await this.runOutstandingItems()
+          else
+            this.nominateMachine(false)
+
           break
         case 'new_request':
           this.queue.add(message)
@@ -202,18 +256,10 @@ export default class Queue {
       process.exit(signal)
   }
 
-  private get concurrencyCount() {
-    const baseConcurrency = Math.ceil(this.options?.concurrency) || 3
-    if(!this.redis)
-      return baseConcurrency
+  private get outstandingRequestIds() {
+    const requests = Object.keys(this.requests).map(requestId => this.requests[requestId]).sort((a, b) => a.recievedAt - b.recievedAt)
+    const requestIds = requests.map(request => request.id).filter(id => !this.currentlyProcessing.has(id))
 
-    const concurrencyType = this.options?.concurrencyType || 'node'
-
-    switch(concurrencyType) {
-    case 'cluster':
-      return Math.ceil(baseConcurrency / this.machines.size) || baseConcurrency
-    default:
-      return baseConcurrency
-    }
+    return requestIds
   }
 }

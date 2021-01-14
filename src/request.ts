@@ -59,11 +59,13 @@ export default class QueueRequest {
       await queue.redis.sadd(queue.withEvent('queue'), this.id)
 
       await queue.publisher.publish(queue.withEvent('new_request'), this.id)
+
+      await queue.nominateMachine(false)
     } else
-      queue.runOutstandingItems()
+      await queue.runOutstandingItems()
   }
 
-  async deregister() {
+  async deregister(shutdown = false) {
     const { queue } = this
     if(queue.options?.verbose)
       console.log('[done]', this.id)
@@ -81,7 +83,16 @@ export default class QueueRequest {
       await queue.redis.srem(queue.withEvent('processing'), this.id)
 
       await queue.publisher.publish(queue.withEvent('request_done'), this.id)
-    } else
-      queue.runOutstandingItems()
+
+      if(!shutdown) {
+        let nominations = queue.concurrencyCount
+        if(queue.queue.size < queue.concurrencyCount)
+          nominations = queue.queue.size
+
+        for(let i = 0; i < nominations; i++)
+          await queue.nominateMachine(false)
+      }
+    } else if(!shutdown)
+      await queue.runOutstandingItems()
   }
 }
