@@ -1,4 +1,6 @@
 # fishqueue
+![Unit Tests](https://github.com/darnfish/fishqueue/workflows/Unit%20Tests/badge.svg)
+
 High-velocity queue for handling incoming Express.js requests across replicated codebase using Redis with minimal residue and maximum buzzwords
 
 ## Install
