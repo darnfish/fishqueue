@@ -1,39 +1,46 @@
 const axios = require('axios')
+const Listr = require('listr')
 
-const batches = 5
-const concurrentRequests = 150
+const batchCount = 20
+const requestCount = 10
 
-async function runSpamRequest(batch, request) {
+async function runSpamRequest(batch, request, { task }) {
   const port = Math.random() >= 0.5 ? '4000' : '5000'
 
   const portLog = `port#${port}`
   const batchLog = `batch#${batch}`
   const requestLog = `request#${request}`
 
-  console.log('- sending', batchLog, requestLog, 'to', portLog)
+  task.title += ` ${portLog}`
+
+  const logLine = [portLog, batchLog, requestLog].join(' ')
+
+  let responseTime = Date.now()
   
-  const { data } = await axios.post(`http://localhost:${port}/handler`, { name: [portLog, batchLog, requestLog].join(' ') })
-  console.log('- got', data, 'from', batchLog, requestLog, 'to', portLog)
+  const { data } = await axios.post(`http://localhost:${port}/handler`, { name: logLine })
+  responseTime = Date.now() - responseTime
+
+  task.title += ` (${responseTime}ms) (got ${JSON.stringify(data)})`
 }
 
 async function main() {
-  for(let batch = 0; batch < batches; batch++) {
+  const batches = []
+  for(let batch = 1; batch <= batchCount; batch++) {
     const requests = []
-    for(let request = 0; request < concurrentRequests; request++)
-      requests.push(runSpamRequest(batch, request))
+    for(let request = 1; request <= requestCount; request++)
+      requests.push({
+        title: `Request #${request}`,
+        task: (ctx, task) => runSpamRequest(batch, request, { task })
+      })
 
-    console.log(`batch#${batch} starting with ${concurrentRequests} requests...`)
-
-    try {
-      await Promise.all(requests)
-
-      console.log(`batch#${batch} done!`)
-    } catch(error) {
-      console.log(error, `<- batch#${batch} failed :~(`)
-    }
-  
-    console.log('')
+    batches.push({
+      title: `Batch #${batch}`,
+      task: () => new Listr(requests, { concurrent: true })
+    })
   }
+
+  const task = new Listr(batches, { concurrent: false })
+  await task.run()
 }
 
 main()
