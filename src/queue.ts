@@ -144,8 +144,8 @@ export default class Queue {
   }
 
   async runOutstandingItems() {
-    let requestIds = Object.keys(this.requests)
-    requestIds = requestIds.filter(id => !this.currentlyProcessing.has(id))
+    const requests = Object.keys(this.requests).map(requestId => this.requests[requestId]).sort((a, b) => a.recievedAt - b.recievedAt)
+    const requestIds = requests.map(request => request.id).filter(id => !this.currentlyProcessing.has(id))
 
     if(requestIds.length === 0)
       return
