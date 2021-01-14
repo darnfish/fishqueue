@@ -150,7 +150,7 @@ export default class Queue {
     return new Redis(this.options?.redis)
   }
 
-  private async onDeath(signal) {
+  private async onDeath(signal, exitProcess = true) {
     if(this.redis) {
       const internalQueueItems = Object.keys(this.requests)
 
@@ -162,9 +162,16 @@ export default class Queue {
         } catch(error) {
           console.error('error deleting request', requestId, '->', error)
         }
+
+      await Promise.all([
+        this.redis.quit(),
+        this.publisher.quit(),
+        this.subscriber.quit()
+      ])
     }
 
-    process.exit(signal)
+    if(exitProcess)
+      process.exit(signal)
   }
 
   private get concurrencyCount() {
