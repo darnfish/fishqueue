@@ -45,6 +45,39 @@ export default class Queue {
     return async (req: Request, res: Response) => new QueueRequest(req, res, handler, this)
   }
 
+  async runOutstandingItems() {
+    const requests = Object.keys(this.requests).map(requestId => this.requests[requestId]).sort((a, b) => a.recievedAt - b.recievedAt)
+    const requestIds = requests.map(request => request.id).filter(id => !this.currentlyProcessing.has(id))
+
+    if(requestIds.length === 0)
+      return
+
+    if(this.currentlyProcessing.size >= this.concurrencyCount)
+      return
+
+    const [requestId] = requestIds
+    this.requests[requestId].run()
+  }
+
+  generateId() {
+    return `${this.name}:${intformat(this.idGenerator.next(), 'dec')}`
+  }
+
+  withEvent(eventName?) {
+    return `fq:${this.name}${eventName ? `:${eventName}` : ''}`
+  }
+
+  get useRedis() {
+    if(this.options?.concurrencyType === 'node')
+      return false
+
+    return !!this.options?.redis
+  }
+
+  get requestCount() {
+    return Object.keys(this.requests).length
+  }
+
   private async setup() {
     // Generate initial internal queue id
     const idParams = { epoch: new Date(2002, 7, 9) }
@@ -103,9 +136,6 @@ export default class Queue {
         case 'new_request':
           this.queue.add(message)
 
-          if(this.currentlyProcessing.size === 0)
-            this.runOutstandingItems()
-
           break
         case 'request_processing':
           this.currentlyProcessing.add(message)
@@ -115,9 +145,6 @@ export default class Queue {
           this.queue.delete(message)
           delete this.requests[message]
           this.currentlyProcessing.delete(message)
-
-          if(this.requestCount > 0)
-            this.runOutstandingItems()
 
           break
         }
@@ -141,28 +168,6 @@ export default class Queue {
     }
 
     death(signal => this.onDeath(signal))
-  }
-
-  async runOutstandingItems() {
-    const requests = Object.keys(this.requests).map(requestId => this.requests[requestId]).sort((a, b) => a.recievedAt - b.recievedAt)
-    const requestIds = requests.map(request => request.id).filter(id => !this.currentlyProcessing.has(id))
-
-    if(requestIds.length === 0)
-      return
-
-    if(this.currentlyProcessing.size >= this.concurrencyCount)
-      return
-
-    const [requestId] = requestIds
-    this.requests[requestId].run()
-  }
-
-  withEvent(eventName?) {
-    return `fq:${this.name}${eventName ? `:${eventName}` : ''}`
-  }
-
-  generateId() {
-    return `${this.name}:${intformat(this.idGenerator.next(), 'dec')}`
   }
 
   private createRedis() {
@@ -210,16 +215,5 @@ export default class Queue {
     default:
       return baseConcurrency
     }
-  }
-
-  get requestCount() {
-    return Object.keys(this.requests).length
-  }
-
-  get useRedis() {
-    if(this.options?.concurrencyType === 'node')
-      return false
-
-    return !!this.options?.redis
   }
 }
