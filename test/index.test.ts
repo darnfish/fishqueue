@@ -123,7 +123,7 @@ describe('queue', () => {
         servers.push(server)
         handlers.push(handler)
 
-        await new Promise(resolve => setTimeout(resolve, 300))
+        await new Promise(resolve => setTimeout(resolve, 250))
       }
 
       // Ensure every queue knows of its friends
@@ -151,11 +151,12 @@ describe('queue', () => {
 
       // Close all queues
       for(const queue of queues)
-        await Promise.all([
-          queue.redis.quit(),
-          queue.publisher.quit(),
-          queue.subscriber.quit()
-        ])
+        for(const client of [queue.redis, queue.publisher, queue.subscriber])
+          try {
+            await client.quit()
+          } catch(error) {
+            // blah blah
+          }
 
       // Done!
       done()
