@@ -36,8 +36,10 @@ export default class QueueRequest {
 
     queue.currentlyProcessing.add(this.id)
 
-    await queue.redis?.sadd(queue.withEvent('processing'), this.id)
-    await queue.publisher?.publish(queue.withEvent('request_processing'), this.id)
+    if(queue.useRedis) {
+      await queue.redis.sadd(queue.withEvent('processing'), this.id)
+      await queue.publisher.publish(queue.withEvent('request_processing'), this.id)
+    }
 
     this.handler(this.req, this.res)
   }
@@ -47,7 +49,7 @@ export default class QueueRequest {
 
     queue.requests[this.id] = this
 
-    if(queue.redis) {
+    if(queue.useRedis) {
       // Add to queue
       await queue.redis.sadd(queue.withEvent('queue'), this.id)
       await queue.publisher.publish(queue.withEvent('new_request'), this.id)
@@ -65,7 +67,7 @@ export default class QueueRequest {
     delete queue.requests[this.id]
     queue.currentlyProcessing.delete(this.id)
 
-    if(queue.redis) {
+    if(queue.useRedis) {
       // Remove from Redis
       await queue.redis.srem(queue.withEvent('queue'), this.id)
       await queue.redis.srem(queue.withEvent('processing'), this.id)

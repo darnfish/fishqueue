@@ -52,7 +52,7 @@ export default class Queue {
     this.idGenerator = new FlakeId(idParams)
     this.id = this.generateId()
 
-    if(this.options?.redis) {
+    if(this.useRedis) {
       this.redis = this.createRedis()
       this.publisher = this.createRedis()
       this.subscriber = this.createRedis()
@@ -187,5 +187,12 @@ export default class Queue {
     default:
       return baseConcurrency
     }
+  }
+
+  get useRedis() {
+    if(this.options?.concurrencyType === 'node')
+      return false
+
+    return !!this.redis
   }
 }
