@@ -12,6 +12,9 @@ export default class QueueRequest {
   res: Response
   handler: HandlerFunc
 
+  recievedAt: number = Date.now()
+  processedAt?: number
+
   queue: Queue
 
   constructor(req: Request, res: Response, handler: HandlerFunc, queue: Queue) {
@@ -63,7 +66,9 @@ export default class QueueRequest {
   async deregister() {
     const { queue } = this
     if(queue.options?.verbose)
-      console.log('[done]', this.id,)
+      console.log('[done]', this.id)
+
+    this.processedAt = Date.now()
     
     // Remove from local cache
     queue.queue.delete(this.id)
