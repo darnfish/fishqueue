@@ -25,7 +25,7 @@ export default class Queue {
   currentlyProcessing: Set<string> = new Set([])
 
   machineId: number
-  machineCount: number
+  machines: Set<string> = new Set([])
 
   idGenerator: any
 
@@ -60,6 +60,8 @@ export default class Queue {
       this.queue = new Set(await this.redis.smembers(this.withEvent('queue')))
 
       this.eventTypes = [
+        this.withEvent(),
+
         this.withEvent('hello'),
         this.withEvent('goodbye'),
 
@@ -69,17 +71,33 @@ export default class Queue {
       ]
 
       this.subscriber.on('message', async (channel, message) => {
-        const [header, queue, type] = channel.split(':')
+        let isDirectMessage = false
+        let [header, queue, type] = channel.split(':')
+
+        if(!type) {
+          const parts = message.split(':')
+
+          type = parts[0]
+          parts.splice(0, 1)
+
+          message = parts.join(':')
+
+          isDirectMessage = true
+        }
 
         switch(type) {
         case 'hello':
-          if(message !== this.id)
-            this.machineCount += 1
+          this.machines.add(message)
+
+          if(!isDirectMessage)
+            this.publisher.publish(this.withEvent(), `hello:${this.id}`)
     
           break
         case 'goodbye':
-          if(message !== this.id)
-            this.machineCount -= 1
+          this.machines.delete(message)
+
+          if(!isDirectMessage)
+            this.publisher.publish(this.withEvent(), `goodbye:${this.id}`)
     
           break
         case 'new_request':
@@ -93,7 +111,6 @@ export default class Queue {
           this.currentlyProcessing.add(message)
 
           break
-        }
         case 'request_done': {
           this.queue.delete(message)
           delete this.requests[message]
@@ -118,7 +135,6 @@ export default class Queue {
       // Find out how many nodes are currently on this queue
       const machineId = await this.publisher.publish(this.withEvent('hello'), this.id)
       this.machineId = machineId
-      this.machineCount = machineId
 
       // Update queue id generator with machine id
       this.idGenerator = new FlakeId({ ...idParams, worker: machineId })
@@ -161,7 +177,7 @@ export default class Queue {
     if(this.redis) {
       const internalQueueItems = Object.keys(this.requests)
 
-      await this.publisher.publish(this.withEvent('goodbye'), 'world')
+      await this.publisher.publish(this.withEvent('goodbye'), this.id)
 
       for(const requestId of internalQueueItems)
         try {
@@ -194,6 +210,10 @@ export default class Queue {
     default:
       return baseConcurrency
     }
+  }
+
+  get requestCount() {
+    return Object.keys(this.requests).length
   }
 
   get useRedis() {
