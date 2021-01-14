@@ -8,7 +8,8 @@ const basePort = 4000
 const serverCount = 3
 
 const batchCount = 3
-const requestCount = 50
+const requestCount = 20
+const requestDelay = 0
 
 let currentPortIndex = 0
 let currentPortBatch = 0
@@ -38,6 +39,8 @@ function generatePort() {
 }
 
 async function runSpamRequest(batch, request, { port, task }) {
+  await new Promise(resolve => setInterval(resolve, request * requestDelay))
+
   const portLog = `port#${port}`
   const batchLog = `batch#${batch}`
   const requestLog = `request#${request}`
@@ -59,8 +62,8 @@ const config = {
   queueConfig: {
     redis: 'redis://localhost:6379',
 
-    concurrency: 2,
-    concurrencyType: 'node'
+    concurrency: serverCount * 2,
+    concurrencyType: 'cluster'
   }
 }
 
@@ -69,13 +72,14 @@ async function main() {
     ports.push(port)
 
   console.log('fishspammer 🐟')
-  console.log(`- running ${ports.length} servers (on ports ${ports.join(', ')})`)
+  console.log(`- running ${batchCount} batches of ${requestCount} requests (totalling ${batchCount * requestCount} requests)`)
+  console.log(`- distributing requests to ${ports.length} servers (on ports ${ports.join(', ')})`)
 
   if(config.waitTime)
-    console.log(`- waiting ${config.waitTime}ms between requests`)
+    console.log(`- requests will take ${config.waitTime}ms to respond`)
 
   if(config.queueConfig.concurrency) {
-    console.log(`- running with a concurrency of ${config.queueConfig.concurrency} (${config.queueConfig.concurrencyType || 'node'} mode)`)
+    console.log(`- with a concurrency of ${config.queueConfig.concurrency} (${config.queueConfig.concurrencyType || 'node'} mode)`)
   }
 
   console.log('')
