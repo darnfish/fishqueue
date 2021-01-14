@@ -7,6 +7,8 @@ import { Request, Response } from 'express'
 import QueueRequest from './request'
 import { QueueOptions, HandlerMap, HandlerFunc } from './defs'
 
+const mutedEvents = ['hello', 'goodbye']
+
 export default class Queue {
   id: string
 
@@ -44,76 +46,76 @@ export default class Queue {
   }
 
   private async setup() {
-    this.redis = this.createRedis()
-    this.publisher = this.createRedis()
-    this.subscriber = this.createRedis()
-
-    this.queue = new Set(await this.redis.smembers(this.withEvent('queue')))
-
-    this.eventTypes = [
-      this.withEvent('hello'),
-      this.withEvent('goodbye'),
-
-      this.withEvent('new_request'),
-      this.withEvent('request_processing'),
-      this.withEvent('request_done')
-    ]
-
-    const mutedEvents = ['hello', 'goodbye']
-
-    this.subscriber.on('message', async (channel, message) => {
-      const [header, queue, type] = channel.split(':')
-
-      switch(type) {
-      case 'hello':
-        if(message !== this.id)
-          this.machineCount += 1
-  
-        break
-      case 'goodbye':
-        if(message !== this.id)
-          this.machineCount -= 1
-  
-        break
-      case 'new_request': {
-        this.queue.add(message)
-
-        await this.runOutstandingItems()
-
-        break
-      }
-      case 'request_done': {
-        this.queue.delete(message)
-        delete this.requests[message]
-
-        await this.runOutstandingItems()
-
-        break
-      }
-      }
-
-      if(this.options?.verbose && !mutedEvents.includes(type)) {
-        console.log('[got]', type, '->', message)
-        // console.log('[queue]', this.queue)
-        // console.log('')
-      }
-    }).subscribe([
-      ...this.eventTypes
-    ])
-
     // Generate initial internal queue id
     const idParams = { epoch: new Date(2002, 7, 9) }
 
     this.idGenerator = new FlakeId(idParams)
     this.id = this.generateId()
 
-    // Find out how many nodes are currently on this queue
-    const machineId = await this.publisher.publish(this.withEvent('hello'), this.id)
-    this.machineId = machineId
-    this.machineCount = machineId
+    if(this.options?.redis) {
+      this.redis = this.createRedis()
+      this.publisher = this.createRedis()
+      this.subscriber = this.createRedis()
 
-    // Update queue id generator with machine id
-    this.idGenerator = new FlakeId({ ...idParams, worker: machineId })
+      this.queue = new Set(await this.redis.smembers(this.withEvent('queue')))
+
+      this.eventTypes = [
+        this.withEvent('hello'),
+        this.withEvent('goodbye'),
+
+        this.withEvent('new_request'),
+        this.withEvent('request_processing'),
+        this.withEvent('request_done')
+      ]
+
+      this.subscriber.on('message', async (channel, message) => {
+        const [header, queue, type] = channel.split(':')
+
+        switch(type) {
+        case 'hello':
+          if(message !== this.id)
+            this.machineCount += 1
+    
+          break
+        case 'goodbye':
+          if(message !== this.id)
+            this.machineCount -= 1
+    
+          break
+        case 'new_request': {
+          this.queue.add(message)
+
+          await this.runOutstandingItems()
+
+          break
+        }
+        case 'request_done': {
+          this.queue.delete(message)
+          delete this.requests[message]
+
+          await this.runOutstandingItems()
+
+          break
+        }
+        }
+
+        if(this.options?.verbose && !mutedEvents.includes(type)) {
+          console.log('[got]', type, '->', message)
+          // console.log('[queue]', this.queue)
+          // console.log('')
+        }
+      }).subscribe([
+        ...this.eventTypes
+      ])
+
+      // Find out how many nodes are currently on this queue
+      const machineId = await this.publisher.publish(this.withEvent('hello'), this.id)
+      this.machineId = machineId
+      this.machineCount = machineId
+
+      // Update queue id generator with machine id
+      this.idGenerator = new FlakeId({ ...idParams, worker: machineId })
+    }
 
     death(signal => this.onDeath(signal))
   }
@@ -149,21 +151,27 @@ export default class Queue {
   }
 
   private async onDeath(signal) {
-    const internalQueueItems = Object.keys(this.requests)
+    if(this.redis) {
+      const internalQueueItems = Object.keys(this.requests)
 
-    await this.publisher.publish(this.withEvent('goodbye'), 'world')
+      await this.publisher.publish(this.withEvent('goodbye'), 'world')
 
-    for(const requestId of internalQueueItems)
-      try {
-        await this.requests[requestId].deregister()
-      } catch(error) {
-        console.error('error deleting request', requestId, '->', error)
-      }
+      for(const requestId of internalQueueItems)
+        try {
+          await this.requests[requestId].deregister()
+        } catch(error) {
+          console.error('error deleting request', requestId, '->', error)
+        }
+    }
 
     process.exit(signal)
   }
 
   private get concurrencyCount() {
-    return Math.ceil((this.options?.concurrency || 3) / this.machineCount) || 3
+    const baseConcurrency = this.options?.concurrency || 3
+    if(!this.redis)
+      return baseConcurrency
+
+    return Math.ceil(baseConcurrency / this.machineCount) || 3
   }
 }

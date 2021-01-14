@@ -35,8 +35,9 @@ export default class QueueRequest {
       console.log('[running]', this.id)
 
     queue.currentlyProcessing.add(this.id)
-    await queue.redis.sadd(queue.withEvent('processing'), this.id)
-    await queue.publisher.publish(queue.withEvent('request_processing'), this.id)
+
+    await queue.redis?.sadd(queue.withEvent('processing'), this.id)
+    await queue.publisher?.publish(queue.withEvent('request_processing'), this.id)
 
     this.handler(this.req, this.res)
   }
@@ -46,9 +47,12 @@ export default class QueueRequest {
 
     queue.requests[this.id] = this
 
-    // Add to queue
-    await queue.redis.sadd(queue.withEvent('queue'), this.id)
-    await queue.publisher.publish(queue.withEvent('new_request'), this.id)
+    if(queue.redis) {
+      // Add to queue
+      await queue.redis.sadd(queue.withEvent('queue'), this.id)
+      await queue.publisher.publish(queue.withEvent('new_request'), this.id)
+    } else
+      queue.runOutstandingItems()
   }
 
   async deregister() {
@@ -61,9 +65,12 @@ export default class QueueRequest {
     delete queue.requests[this.id]
     queue.currentlyProcessing.delete(this.id)
 
-    // Remove from Redis
-    await queue.redis.srem(queue.withEvent('queue'), this.id)
-    await queue.redis.srem(queue.withEvent('processing'), this.id)
-    await queue.publisher.publish(queue.withEvent('request_done'), this.id)
+    if(queue.redis) {
+      // Remove from Redis
+      await queue.redis.srem(queue.withEvent('queue'), this.id)
+      await queue.redis.srem(queue.withEvent('processing'), this.id)
+      await queue.publisher.publish(queue.withEvent('request_done'), this.id)
+    } else
+      queue.runOutstandingItems()
   }
 }

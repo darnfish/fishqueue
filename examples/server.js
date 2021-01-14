@@ -2,7 +2,7 @@ const express = require('express')
 
 const Queue = require('../lib').default
 
-const webhookQueue = new Queue('webhook', { redis: 'redis://localhost:6379', verbose: false, concurrency: 4*4 })
+const webhookQueue = new Queue('webhook', { verbose: false, concurrency: 2 })
 
 const app = express()
 

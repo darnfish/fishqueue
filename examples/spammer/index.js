@@ -1,10 +1,10 @@
 const axios = require('axios')
 const Listr = require('listr')
 
-const ports = ['4000', '5000', '6000', '7000']
+const ports = ['4000']
 
 const batchCount = 5
-const requestCount = 40
+const requestCount = 20
 
 let currentPortIndex = 0
 let currentPortBatch = 0
