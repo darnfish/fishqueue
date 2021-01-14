@@ -97,7 +97,7 @@ describe('queue', () => {
       const queues = []
       const servers = []
       const handlers = []
-      
+
       const serverCount = 5
 
       for(let i = 0; i < serverCount; i++) {
@@ -123,7 +123,7 @@ describe('queue', () => {
         servers.push(server)
         handlers.push(handler)
 
-        await new Promise(resolve => setTimeout(resolve, 125))
+        await new Promise(resolve => setTimeout(resolve, 300))
       }
 
       // Ensure every queue knows of its friends
