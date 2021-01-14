@@ -91,77 +91,77 @@ describe('queue', () => {
     })
   })
 
-  describe('redis', () => {
-    it('distributes requests across many servers', async done => {
-      const ports = []
-      const queues = []
-      const servers = []
-      const handlers = []
+  // describe('redis', () => {
+  //   it('distributes requests across many servers', async done => {
+  //     const ports = []
+  //     const queues = []
+  //     const servers = []
+  //     const handlers = []
 
-      const serverCount = 5
+  //     const serverCount = 5
 
-      for(let i = 0; i < serverCount; i++) {
-        // Create Queue
-        const queue = new Queue('queuesRequests', { redis: 'redis://localhost:6379', concurrency: 3 })
+  //     for(let i = 0; i < serverCount; i++) {
+  //       // Create Queue
+  //       const queue = new Queue('queuesRequests', { redis: 'redis://localhost:6379', concurrency: 3 })
 
-        // Create Express server
-        const app = express()
-        const server = app.listen(port)
+  //       // Create Express server
+  //       const app = express()
+  //       const server = app.listen(port)
 
-        // Create handler
-        const handler = jest.fn((req, res) => res.sendStatus(200))
+  //       // Create handler
+  //       const handler = jest.fn((req, res) => res.sendStatus(200))
 
-        // Create route
-        app.post('/', queue.process(handler))
+  //       // Create route
+  //       app.post('/', queue.process(handler))
 
-        // Increase port
-        ports.push(port)
-        port += 1
+  //       // Increase port
+  //       ports.push(port)
+  //       port += 1
 
-        // Add server and queue
-        queues.push(queue)
-        servers.push(server)
-        handlers.push(handler)
+  //       // Add server and queue
+  //       queues.push(queue)
+  //       servers.push(server)
+  //       handlers.push(handler)
 
-        await new Promise(resolve => setTimeout(resolve, 250))
-      }
+  //       await new Promise(resolve => setTimeout(resolve, 250))
+  //     }
 
-      // Ensure every queue knows of its friends
-      for(const queue of queues)
-        expect(queue.machineCount).toBe(serverCount)
+  //     // Ensure every queue knows of its friends
+  //     for(const queue of queues)
+  //       expect(queue.machineCount).toBe(serverCount)
 
-      const requests = []
-      const callCount = 2
+  //     const requests = []
+  //     const callCount = 2
 
-      // Create two requests per server
-      for(const port of ports) 
-        for(let i = 0; i < callCount; i++)
-          requests.push(axios.post(`http://localhost:${port}`))
+  //     // Create two requests per server
+  //     for(const port of ports) 
+  //       for(let i = 0; i < callCount; i++)
+  //         requests.push(axios.post(`http://localhost:${port}`))
 
-      // Run requests
-      await Promise.all(requests)
+  //     // Run requests
+  //     await Promise.all(requests)
 
-      // Handler check
-      for(const handler of handlers)
-        expect(handler).toHaveBeenCalledTimes(callCount)
+  //     // Handler check
+  //     for(const handler of handlers)
+  //       expect(handler).toHaveBeenCalledTimes(callCount)
 
-      // Close all servers
-      for(const server of servers)
-        server.close()
+  //     // Close all servers
+  //     for(const server of servers)
+  //       server.close()
 
-      // Close all queues
-      for(const queue of queues)
-        for(const client of [queue.redis, queue.publisher, queue.subscriber])
-          try {
-            await client.quit()
-          } catch(error) {
-            // blah blah
-          }
+  //     // Close all queues
+  //     for(const queue of queues)
+  //       for(const client of [queue.redis, queue.publisher, queue.subscriber])
+  //         try {
+  //           await client.quit()
+  //         } catch(error) {
+  //           // blah blah
+  //         }
 
-      // Done!
-      done()
-    })
-  })
+  //     // Done!
+  //     done()
+  //   })
+  // })
 })
 
 afterEach(() => port += 1)
