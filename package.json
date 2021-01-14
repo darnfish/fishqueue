@@ -1,6 +1,6 @@
 {
   "name": "fishqueue",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Distributed Express.js Request Queue",
   "main": "lib/index.js",
   "repository": "https://github.com/darnfish/fishqueue.git",
