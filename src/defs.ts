@@ -9,9 +9,12 @@ export interface HandlerMap {
   [key: string]: QueueRequest
 }
 
+export type ConcurrencyType = 'node' | 'cluster'
+
 export interface QueueOptions {
   redis?: string | Redis.RedisOptions
 
   verbose?: boolean
   concurrency?: number
+  concurrencyType?: ConcurrencyType
 }

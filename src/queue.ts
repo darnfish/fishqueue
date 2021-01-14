@@ -179,6 +179,13 @@ export default class Queue {
     if(!this.redis)
       return baseConcurrency
 
-    return Math.ceil(baseConcurrency / this.machineCount) || 3
+    const concurrencyType = this.options?.concurrencyType || 'node'
+
+    switch(concurrencyType) {
+    case 'cluster':
+      return Math.ceil(baseConcurrency / this.machineCount) || 3
+    default:
+      return baseConcurrency
+    }
   }
 }
