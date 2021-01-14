@@ -1,10 +1,14 @@
 const axios = require('axios')
 const Listr = require('listr')
 
-const ports = ['4000']
+const createServer = require('./server')
 
-const batchCount = 5
-const requestCount = 20
+const ports = []
+const basePort = 4000
+const serverCount = 3
+
+const batchCount = 3
+const requestCount = 50
 
 let currentPortIndex = 0
 let currentPortBatch = 0
@@ -50,24 +54,72 @@ async function runSpamRequest(batch, request, { port, task }) {
   task.title += ` (${responseTime}ms) (got ${JSON.stringify(data)})`
 }
 
+const config = {
+  waitTime: 500,
+  queueConfig: {
+    redis: 'redis://localhost:6379',
+
+    concurrency: 2,
+    concurrencyType: 'node'
+  }
+}
+
 async function main() {
+  for(let port = basePort; port < (basePort + serverCount); port ++)
+    ports.push(port)
+
+  console.log('fishspammer 🐟')
+  console.log(`- running ${ports.length} servers (on ports ${ports.join(', ')})`)
+
+  if(config.waitTime)
+    console.log(`- waiting ${config.waitTime}ms between requests`)
+
+  if(config.queueConfig.concurrency) {
+    console.log(`- running with a concurrency of ${config.queueConfig.concurrency} (${config.queueConfig.concurrencyType || 'node'} mode)`)
+  }
+
+  console.log('')
+
+  await new Promise(resolve => setTimeout(resolve, 250))
+
+  const servers = []
+
+  for(const port of ports)
+    servers.push(await new Promise(resolve => {
+      createServer(port, {
+        ready: server => resolve(server),
+
+        ...config
+      })
+    }))
+
   const batches = []
   for(let batch = 1; batch <= batchCount; batch++) {
     const requests = []
     for(let request = 1; request <= requestCount; request++)
       requests.push({
-        title: `Request #${request}`,
+        title: `request#${request}`,
         task: (ctx, task) => runSpamRequest(batch, request, { task, port: generatePort() })
       })
 
     batches.push({
-      title: `Batch #${batch}`,
+      title: `batch#${batch}`,
       task: () => new Listr(requests, { concurrent: true })
     })
   }
 
-  const task = new Listr(batches, { concurrent: false })
+  let task
+  if(batches.length === 1)
+    task = batches[0].task()
+  else
+    task = new Listr(batches, { concurrent: false })
+  
   await task.run()
+
+  for(const server of servers)
+    await server.close()
+
+  console.log('\n🎣 done!\n')
 }
 
 main()
