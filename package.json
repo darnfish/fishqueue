@@ -8,8 +8,9 @@
   "license": "MIT",
   "scripts": {
     "start": "node examples/server",
-    "spam": "node examples/spammer",
     "dev": "tsc-watch --compiler typescript/bin/tsc --onSuccess \"node examples/server\"",
+    "spam": "node examples/spammer",
+    "spam:dev": "tsc-watch --compiler typescript/bin/tsc --onSuccess \"yarn spam\"",
     "build": "tsc",
     "test": "jest",
     "lint": "eslint .",
